@@ -489,6 +489,8 @@ class ArrayCreationTest(tf.test.TestCase):
     if msg:
       msg = 'Dtype match failed for: {}. Expected: {} Actual: {}.'.format(
           msg, expected.dtype, actual.dtype)
+    print(type(actual.dtype))
+    print(type(expected.dtype))
     self.assertEqual(actual.dtype, expected.dtype, msg=msg)
 
   def match(self, actual, expected, msg=None, almost=False, decimal=7):
@@ -839,6 +841,12 @@ class ArrayMethodsTest(tf.test.TestCase):
         for fn2 in self.array_transforms:
           arr_arg = fn1(arr)
           newshape_arg = fn2(newshape)
+          # If reshape is called on a Tensor, it calls out to the Tensor.reshape
+          # method.
+          if isinstance(arr_arg, tf.Tensor):
+            arr_arg = arr_arg.numpy()
+          if isinstance(newshape_arg, tf.Tensor):
+            newshape_arg = newshape_arg.numpy()
           self.match(
               array_ops.reshape(arr_arg, newshape_arg, *args, **kwargs),
               np.reshape(arr_arg, newshape, *args, **kwargs))
@@ -888,6 +896,12 @@ class ArrayMethodsTest(tf.test.TestCase):
         for fn2 in self.array_transforms:
           arr_arg = fn1(arr)
           axes_arg = fn2(axes) if axes is not None else None
+          # If reshape is called on a Tensor, it calls out to the Tensor.reshape
+          # method.
+          if isinstance(arr_arg, tf.Tensor):
+            arr_arg = arr_arg.numpy()
+          if isinstance(axes_arg, tf.Tensor):
+            axes_arg = axes_arg.numpy()
           self.match(
               array_ops.transpose(arr_arg, axes_arg),
               np.transpose(arr_arg, axes))

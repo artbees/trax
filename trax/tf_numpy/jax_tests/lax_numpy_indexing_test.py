@@ -882,4 +882,5 @@ class IndexedUpdateTest(jtu.TestCase):
 
 if __name__ == "__main__":
   tf.config.set_soft_device_placement(False)
+  tf.enable_numpy_style_type_promotion()
   absltest.main()

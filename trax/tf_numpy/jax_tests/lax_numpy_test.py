@@ -3070,4 +3070,5 @@ class NumpyGradTests(jtu.TestCase):
 
 if __name__ == "__main__":
   tf.enable_v2_behavior()
+  tf.enable_numpy_style_type_promotion()
   absltest.main()

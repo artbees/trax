@@ -39,10 +39,12 @@ class ShapeDtype(object):
       `dtype` object.
     """
     # Canonicalize shape and dtype.
+    if isinstance(shape, tf.TensorShape):
+      shape = shape.as_list()
     if isinstance(shape, list):
       shape = tuple(shape)
     if not isinstance(shape, tuple):
-      raise TypeError('shape must be tuple or list; got: {}'.format(shape))
+      raise TypeError('shape must be tuple or list; got: {} of type {}'.format(shape, type(shape)))
     if isinstance(dtype, tf.DType):
       dtype = dtype.as_numpy_dtype
 

@@ -29,6 +29,7 @@ import numpy as np
 import six
 
 import tensorflow.compat.v2 as tf
+tf.enable_numpy_style_type_promotion()
 
 import trax.tf_numpy.numpy as tf_np
 
@@ -1266,6 +1267,8 @@ def uniform(key,
     An ndarray with shape `shape` and dtype `dtype`. Each value in the ndarray
     is sampled uniformly randomly in range [`minval`, `maxval`).
   """
+  minval = tf.cast(minval, dtype)
+  maxval = tf.cast(maxval, dtype)
   key = tf_np.asarray(key, dtype=_RNG_KEY_DTYPE)
   return tf_np.asarray(
       tf.random.stateless_uniform(
