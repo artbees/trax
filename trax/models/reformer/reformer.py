@@ -57,19 +57,60 @@ def ChunkedFeedForward(d_model, d_ff, dropout, activation, act_dropout,
   return tl.BatchLeadingAxes(tl.Chunk(tl.Serial(ff), chunk_size))
 
 
-def FeedForwardWithOptions(d_model, d_ff, dropout, ff_activation, ff_dropout,
-                           ff_chunk_size, ff_use_sru, ff_sparsity, mode):
-  """Feed-Forward block with all the options."""
+def FeedForwardWithOptions(d_model, d_ff, dropout, dropout_shared_axes,
+                           ff_activation, ff_dropout, ff_chunk_size, ff_use_sru,
+                           ff_sparsity, mode):
+  """Feed-Forward block with all the options.
+
+  Args:
+    d_model: Final dimension of tensors at most points in the model, including
+        the initial embedding output.
+    d_ff: Size of special dense layer in the feed-forward part of each block.
+    dropout: Stochastic rate (probability) for dropping an activation value
+        when applying dropout within a block.
+    dropout_shared_axes: Tensor axes on which to share a dropout mask.
+        Sharing along batch and sequence axes (`dropout_shared_axes=(0,1)`) is
+        a useful way to save memory and apply consistent masks to activation
+        vectors at different sequence positions.
+    ff_activation: Type of activation function at the end of each block; must
+        be an activation-type subclass of `Layer`.
+    ff_dropout: Stochastic rate (probability) for dropping an activation value
+        when applying dropout after the FF dense layer.
+    ff_chunk_size: int; if > 0, chunk feed-forward into this-sized chunks
+    ff_use_sru: int; if > 0, we use this many SRU layers instead of feed-forward
+    ff_sparsity: int, if > 0 use sparse feed-forward block with this sparsity
+    mode: If `'train'`, each block will include dropout; else, it will
+        pass all values through unaltered.
+
+  Returns:
+    A list of layers which maps vectors to vectors.
+  """
   if ff_use_sru:
     return [tl.SRU(d_model) for _ in range(ff_use_sru)]
   elif ff_sparsity:
     return [tl.LayerNorm(),
             tl.SparseFF(d_ff, n_elements_in_block=ff_sparsity,
                         d_lowrank=d_ff // ff_sparsity, mode=mode),
-            tl.Dropout(rate=dropout, shared_axes=[-2], mode=mode)]
+            tl.Dropout(rate=dropout, shared_axes=dropout_shared_axes,
+                       mode=mode)]
   else:
     return [ChunkedFeedForward(d_model, d_ff, dropout, ff_activation,
                                ff_dropout, ff_chunk_size, mode)]
+
+
+# TODO(lukaszkaiser): unify attention layers API and remove this branch
+def ApplyAttentionLayer(attention_type, d_model, n_heads, d_qk, d_v, causal,
+                        masked, attention_dropout, output_dropout, mode):
+  """Runs the supplied attention layer."""
+  try:
+    attention = attention_type(
+        n_heads=n_heads, d_qk=d_qk, d_v=d_v,
+        causal=causal, masked=masked, output_dropout=output_dropout,
+        attention_dropout=attention_dropout, mode=mode)
+  except TypeError:  # No d_qk arguments in less advanced layers.
+    attention = attention_type(d_model, n_heads=n_heads,
+                               dropout=attention_dropout, mode=mode)
+  return attention
 
 
 def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
@@ -95,21 +136,16 @@ def DecoderBlock(d_model, d_ff, d_attention_key, d_attention_value,
   Returns:
     the layer.
   """
-  # TODO(lukaszkaiser): unify attention layers API and remove this branch
-  try:
-    attention = attention_type(
-        n_heads=n_heads, d_qk=d_attention_key, d_v=d_attention_value,
-        causal=True, output_dropout=dropout, mode=mode)
-  except TypeError:  # No d_qk arguments in less advanced layers.
-    attention = attention_type(d_model, n_heads=n_heads,
-                               dropout=dropout, mode=mode)
+  attention = ApplyAttentionLayer(attention_type, d_model, n_heads,
+                                  d_attention_key, d_attention_value, True,
+                                  False, dropout, dropout, mode)
   attention_half_residual = tl.ReversibleHalfResidual(
       tl.LayerNorm(),
       attention_layer=attention,
   )
 
   feed_forward = FeedForwardWithOptions(
-      d_model, d_ff, dropout, ff_activation, ff_dropout,
+      d_model, d_ff, dropout, [-2], ff_activation, ff_dropout,
       ff_chunk_size, ff_use_sru, ff_sparsity, mode)
 
   return [
@@ -393,18 +429,17 @@ def EncoderBlock(d_model, d_ff, n_heads, attention_type, dropout, ff_activation,
     # to 'eval' mode instead.
     mode = 'eval'
 
-  attention = attention_type(
-      n_heads=n_heads, d_qk=d_model//n_heads, d_v=d_model//n_heads,
-      masked=True, causal=False,
-      attention_dropout=dropout, output_dropout=dropout,
-      mode=mode)
+  attention = ApplyAttentionLayer(
+      attention_type=attention_type, d_model=d_model, n_heads=n_heads,
+      d_qk=d_model//n_heads, d_v=d_model//n_heads, masked=True, causal=False,
+      attention_dropout=dropout, output_dropout=dropout, mode=mode)
   attention_half_residual = tl.ReversibleHalfResidual(
       tl.LayerNorm(),
       attention_layer=attention,
   )
 
   feed_forward = FeedForwardWithOptions(
-      d_model, d_ff, dropout, ff_activation, ff_dropout,
+      d_model, d_ff, dropout, [-2], ff_activation, ff_dropout,
       ff_chunk_size, ff_use_sru, ff_sparsity, mode)
 
   return [
